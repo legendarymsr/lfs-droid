@@ -83,9 +83,9 @@ class ProgressTest {
 
     @Test fun jobs() {
         assertEquals(1, Chroot.jobsFor(8, 1L shl 30))
-        assertEquals(5, Chroot.jobsFor(8, 8L shl 30))
-        assertEquals(6, Chroot.jobsFor(8, 16L shl 30))
-        assertEquals(4, Chroot.jobsFor(4, 16L shl 30))
+        assertEquals(3, Chroot.jobsFor(8, 7_500_000_000L)) // an "8 GB" phone reports ~7.5
+        assertEquals(4, Chroot.jobsFor(8, 16L shl 30))
+        assertEquals(2, Chroot.jobsFor(2, 16L shl 30))
     }
 
     @Test fun alpineYaml() {

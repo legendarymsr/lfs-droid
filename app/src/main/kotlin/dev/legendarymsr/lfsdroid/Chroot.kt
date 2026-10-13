@@ -122,8 +122,8 @@ class Chroot(private val filesDir: File) {
 
         /** Parallel make jobs: all cores is a fine way to cook a phone and run out of RAM. */
         fun jobsFor(cores: Int, ramBytes: Long): Int {
-            val byRam = (ramBytes / (1536L * 1024 * 1024)).toInt() // ~1.5 GB per g++ job on the big files
-            return minOf(cores, byRam, 6).coerceAtLeast(1)
+            val byRam = (ramBytes / (2048L * 1024 * 1024)).toInt() // ~2 GB per job: g++ on the big files, without waking lmkd
+            return minOf(cores, byRam, 4).coerceAtLeast(1)
         }
     }
 }

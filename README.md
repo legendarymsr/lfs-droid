@@ -28,6 +28,11 @@ No BLFS, no Xorg, no desktop. Just the base system and a terminal.
 - Shows the chapter, the package, step *N of M*, a progress bar and the live log tail.
 - **Checkpoints**: every finished step is recorded, so after a failure, a Stop or a reboot it picks
   up at the first unfinished step. Logs per step live in `$LFS/sources/.logs`.
+- The build is a **detached root process** (its own session via `setsid`/`nohup` under Magisk `su`), so
+  Android killing the app or the service doesn't kill the build. The app just follows its log and
+  status files and reattaches when you open it again. Stop kills the whole process group.
+- `make -j` is configurable; the default assumes ~2 GB RAM per job (max 4) so lmkd doesn't eat your phone.
+- Crash reports and Android's "last exit reason" are shown in the app, with a copy button.
 - Free-space check before starting and resuming.
 - Built-in **terminal** (a small PTY-backed VT100 emulator with an extra-keys row) that opens a root
   shell in the finished LFS, or in the Alpine build host while the build is still going.

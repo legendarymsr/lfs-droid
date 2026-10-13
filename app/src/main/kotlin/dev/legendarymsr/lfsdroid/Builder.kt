@@ -40,38 +40,78 @@ class Builder(private val context: Context) {
         })
     }
 
-    /** Runs to the end or the first failure. Returns true when LFS is complete. */
-    fun run(): Boolean {
+    val files = RunFiles(java.io.File(context.filesDir, "run"))
+    private var tail: LogTail? = null
+
+    fun isRunning() = files.isRunning()
+
+    /**
+     * Prepares the host (download + unpack, short) in-process, then hands the long build to a
+     * detached root process. Returns once it's launched; [monitor] follows it from the files.
+     */
+    fun start(): Boolean {
         cancelled = false
+        if (isRunning()) return true
         parser.reset(_state.value.copy(phase = BuildProgress.Phase.Preparing, failedStep = null, exitCode = null, log = emptyList()))
         try {
             prep("Asking Magisk for root")
             if (!chroot.requestRoot()) return fail("No root: grant LFS Droid root in Magisk. This only works on a rooted phone.")
             Storage.check(freeBytes(), resuming = chroot.stateFile.exists())?.let { return fail(it) }
-            if (!File(chroot.host, "bin/busybox").exists()) bootstrapHost()
+            if (!java.io.File(chroot.host, "bin/busybox").exists()) bootstrapHost()
             if (cancelled) return fail("Stopped")
             installScripts()
-            val rc = chroot.runInHost("sh /root/host-setup.sh") { line(it) }
-            if (rc != 0) return fail("Setting up the Alpine host failed (exit $rc)")
-            if (cancelled) return fail("Stopped")
-            val am = context.getSystemService(android.app.ActivityManager::class.java)
-            val mem = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
-            val jobs = Chroot.jobsFor(Runtime.getRuntime().availableProcessors(), mem.totalMem)
-            line("lfsdroid: building with $jobs make jobs")
-            val script = Chroot.launchScript(chroot.host, "exec /bin/bash /root/lfs-build.sh", Chroot.defaultEnv(jobs))
-            val code = chroot.rootShell(script) { line(it) }
-            val s = _state.value
-            if (code == 0 && s.phase == BuildProgress.Phase.Done) return true
-            if (s.phase != BuildProgress.Phase.Failed) emit(parser.set { it.copy(phase = BuildProgress.Phase.Failed, exitCode = code, failedStep = it.failedStep ?: if (cancelled) "stop" else it.pkg) })
-            return false
+            files.prepare()
+            // A fresh run: empty the log and exit file (app-owned, so the app may truncate them).
+            java.io.RandomAccessFile(files.log, "rw").use { it.setLength(0) }
+            files.exit.writeText(""); files.pid.writeText("")
+            val jobs = Settings.jobs(context)
+            val inner = "sh /root/host-setup.sh && echo 'lfsdroid: building with $jobs make jobs' && exec /bin/bash /root/lfs-build.sh"
+            val cmd = "/system/bin/sh -c " + shellQuote(Chroot.launchScript(chroot.host, inner, Chroot.defaultEnv(jobs)))
+            files.runner.writeText(runnerScript(files, cmd))
+            tail = LogTail(files.log)
+            prep("Starting the detached build")
+            val rc = chroot.rootShell(detachCommand(files.runner))
+            if (rc != 0) return fail("Couldn't start the build as root (exit $rc)")
+            // Wait for the runner to check in.
+            repeat(30) { if (files.pidValue() != null) return true; Thread.sleep(500) }
+            return fail("The build process didn't start; see the log")
         } catch (e: Exception) {
+            CrashLog.write(context, "start failed", e)
             return fail(e.message ?: e.toString())
         }
     }
 
+    /** Folds new log lines into the state. Returns the run state. Cheap; call every second or so. */
+    fun poll(): RunState {
+        val t = tail ?: LogTail(files.log).also { tail = it }
+        for (l in t.poll()) {
+            if (l.startsWith("@@LFS runner")) continue
+            line(l)
+        }
+        // Keep the shared log from growing to gigabytes: per-step logs are kept by the script anyway.
+        if (files.log.length() > MAX_LOG_BYTES) runCatching { java.io.RandomAccessFile(files.log, "rw").use { it.setLength(0) } }
+        val rs = runState(files.pidValue(), files.exitCode(), files.heartbeat.lastModified(), System.currentTimeMillis())
+        val s = _state.value
+        when (rs) {
+            RunState.Running -> if (s.phase == BuildProgress.Phase.Idle || s.phase == BuildProgress.Phase.Failed && s.failedStep == null)
+                emit(parser.set { it.copy(phase = if (it.total > 0) BuildProgress.Phase.Building else BuildProgress.Phase.Preparing) })
+            RunState.Exited -> {
+                val code = files.exitCode()
+                if (code != 0 && s.phase != BuildProgress.Phase.Failed)
+                    emit(parser.set { it.copy(phase = BuildProgress.Phase.Failed, exitCode = code, failedStep = it.failedStep ?: if (cancelled) "stop" else it.pkg) })
+            }
+            RunState.Lost -> if (s.phase == BuildProgress.Phase.Building || s.phase == BuildProgress.Phase.Preparing)
+                emit(parser.set { it.copy(phase = BuildProgress.Phase.Failed, message = "The build process vanished (phone rebooted?). Tap Resume.", failedStep = it.pkg) })
+            RunState.NeverStarted -> {}
+        }
+        return rs
+    }
+
     fun stop() {
         cancelled = true
+        files.pidValue()?.let { pid -> runCatching { chroot.rootShell(stopCommand(pid)) } }
         chroot.killAll()
+        runCatching { if (files.exitCode() == null) files.exit.writeText("143") }
     }
 
     private fun fail(msg: String): Boolean {
@@ -116,6 +156,7 @@ class Builder(private val context: Context) {
     }
 
     companion object {
+        const val MAX_LOG_BYTES = 16L * 1024 * 1024
         @Volatile private var instance: Builder? = null
         fun get(context: Context) = instance ?: synchronized(this) { instance ?: Builder(context.applicationContext).also { instance = it } }
     }
