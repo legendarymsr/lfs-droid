@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22)
+project(lfspty C)
+add_library(lfspty SHARED pty.c)
+target_compile_options(lfspty PRIVATE -O2 -Wall)
+target_link_libraries(lfspty log)

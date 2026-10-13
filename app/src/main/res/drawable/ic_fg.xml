@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- a terminal prompt: > _ -->
+    <path android:strokeColor="#7AA2F7" android:strokeWidth="6" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M34,40 L48,54 L34,68" />
+    <path android:strokeColor="#BB9AF7" android:strokeWidth="6" android:strokeLineCap="round" android:pathData="M54,68 L74,68" />
+</vector>

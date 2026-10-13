@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.LfsDroid" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+    <color name="bg">#1A1B26</color>
+    <color name="fg">#7AA2F7</color>
+</resources>
