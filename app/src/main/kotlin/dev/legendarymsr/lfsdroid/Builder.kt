@@ -54,8 +54,8 @@ class Builder(private val context: Context) {
         if (isRunning()) return true
         parser.reset(_state.value.copy(phase = BuildProgress.Phase.Preparing, failedStep = null, exitCode = null, log = emptyList()))
         try {
-            prep("Asking Magisk for root")
-            if (!chroot.requestRoot()) return fail("No root: grant LFS Droid root in Magisk. This only works on a rooted phone.")
+            prep("Asking KernelSU-Next for root")
+            if (!chroot.requestRoot()) return fail("No root: open the KernelSU-Next manager, go to Superuser and turn on LFS Droid, then try again. This only works on a rooted phone.")
             Storage.check(freeBytes(), resuming = chroot.stateFile.exists())?.let { return fail(it) }
             if (!java.io.File(chroot.host, "bin/busybox").exists()) bootstrapHost()
             if (cancelled) return fail("Stopped")

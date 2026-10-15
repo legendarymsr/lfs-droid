@@ -3,7 +3,7 @@
 **Build Linux From Scratch on your phone. Why? No reason. None at all.**
 
 LFS Droid is an Android app that compiles a complete [Linux From Scratch](https://www.linuxfromscratch.org/lfs/)
-13.1 (systemd book) base system for aarch64, inside a Magisk-root chroot, on the phone in your pocket.
+13.1 (systemd book) base system for aarch64, inside a KernelSU-Next root chroot, on the phone in your pocket.
 It takes a day or two, turns the phone into a hand warmer, eats about 18 GB of storage, and at the
 end you get… a shell. And fastfetch. So you can screenshot it. That's the whole point.
 
@@ -28,7 +28,7 @@ No BLFS, no Xorg, no desktop. Just the base system and a terminal.
 - Shows the chapter, the package, step *N of M*, a progress bar and the live log tail.
 - **Checkpoints**: every finished step is recorded, so after a failure, a Stop or a reboot it picks
   up at the first unfinished step. Logs per step live in `$LFS/sources/.logs`.
-- The build is a **detached root process** (its own session via `setsid`/`nohup` under Magisk `su`), so
+- The build is a **detached root process** (its own session via `setsid`/`nohup` under KernelSU-Next `su`), so
   Android killing the app or the service doesn't kill the build. The app just follows its log and
   status files and reattaches when you open it again. Stop kills the whole process group.
 - `make -j` is configurable; the default assumes ~2 GB RAM per job (max 4) so lmkd doesn't eat your phone.
@@ -40,7 +40,7 @@ No BLFS, no Xorg, no desktop. Just the base system and a terminal.
 
 ## Requirements
 
-- An arm64 phone rooted with **Magisk** (KernelSU/APatch busybox are also picked up, untested).
+- An arm64 phone rooted with **KernelSU-Next** (grant LFS Droid in the KernelSU-Next manager; Magisk and APatch still work as fallbacks).
 - ~18 GB free, a charger, patience, and no particular reason.
 
 ## Warnings, sincerely

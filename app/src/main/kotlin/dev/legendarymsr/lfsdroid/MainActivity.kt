@@ -128,7 +128,7 @@ private fun BuildScreen(builder: Builder, openShell: (String, String) -> Unit) {
             for (l in p.log) BasicText(l, style = Tokyo.mono, maxLines = 2)
         }
         BasicText(
-            "Runs as real root through Magisk. Expect a day or two of compiling, a warm phone and ~18 GB of storage. Leave it on a charger.",
+            "Runs as real root through KernelSU-Next. Expect a day or two of compiling, a warm phone and ~18 GB of storage. Leave it on a charger.",
             style = TextStyle(color = Tokyo.dim, fontSize = 12.sp),
         )
     }

@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 fun shellQuote(s: String) = "'" + s.replace("'", "'\\''") + "'"
 
 /**
- * The Alpine build host and the LFS tree inside it, entered as root through Magisk `su`.
+ * The Alpine build host and the LFS tree inside it, entered as root through KernelSU-Next `su`.
  * Same approach as Larry Launcher's Gentoo guest: every command is a root child that unshares
  * its mount namespace (so nothing leaks into Android), mounts with explicit sources through
  * the root manager's busybox, then chroots. No init, no daemons.
@@ -26,7 +26,7 @@ class Chroot(private val filesDir: File) {
     fun hostReady() = File(host, "etc/.lfsdroid-host").exists()
     fun lfsFinished() = File(lfs, "usr/bin/fastfetch").exists() || (stateFile.exists() && "9:strip" in parseStateFile(stateFile.readText()))
 
-    /** Whether `su` works; blocks on Magisk's dialog, so call it off the main thread. */
+    /** Whether `su` works; blocks until root is granted in the KernelSU-Next manager, so call it off the main thread. */
     fun requestRoot(): Boolean = try {
         val p = ProcessBuilder(SU, "-c", "id").redirectErrorStream(true).start()
         val out = StringBuffer()
@@ -74,7 +74,7 @@ class Chroot(private val filesDir: File) {
         const val MOUNT_FAILED = 125
 
         const val PICK_BUSYBOX =
-            "BB=; for b in /data/adb/magisk/busybox /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox; do " +
+            "BB=; for b in /data/adb/ksu/bin/busybox /data/adb/magisk/busybox /data/adb/ap/bin/busybox; do " +
                 "[ -x \"\$b\" ] && { BB=\$b; break; }; done; export BB"
 
         /**
