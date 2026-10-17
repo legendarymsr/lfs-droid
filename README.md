@@ -2,9 +2,9 @@
 
 **Build Linux From Scratch on your phone. Why? No reason. None at all.**
 
-LFS Droid is an Android app that compiles a complete [Linux From Scratch](https://www.linuxfromscratch.org/lfs/)
-13.1 (systemd book) base system for aarch64, inside a KernelSU-Next root chroot, on the phone in your pocket.
-It takes a day or two, turns the phone into a hand warmer, eats about 18 GB of storage, and at the
+LFS Droid is an Android app that compiles a [Linux From Scratch](https://www.linuxfromscratch.org/lfs/)
+13.1 system for aarch64, inside a KernelSU-Next root chroot, on the phone in your pocket.
+It takes a few hours, turns the phone into a hand warmer, eats about 4 GB of storage, and at the
 end you get… a shell. And fastfetch. So you can screenshot it. That's the whole point.
 
 It is completely pointless. It is also extremely fun.
@@ -12,14 +12,33 @@ It is completely pointless. It is also extremely fun.
 ## What it does
 
 1. Downloads a tiny **Alpine aarch64 minirootfs** to act as the "host system" (Android has no compiler).
-2. Installs gcc, make, bison, perl, python and friends into it with `apk`.
-3. Runs the book, chapter by chapter: the cross toolchain (ch. 5), temporary tools (ch. 6),
-   the chroot and extra tools (ch. 7) and the whole base system (ch. 8). No kernel, no bootloader:
-   it lives in a chroot, it'll never boot, and it's at peace with that.
-4. Builds **CMake** and **fastfetch** from source on top, because what is LFS without a screenshot.
-5. Strips everything so your storage survives.
+2. Installs gcc, make, bison, python, cmake and friends into it with `apk`.
+3. Builds the Linux API headers and **glibc** into `$LFS` with Alpine's gcc.
+4. Builds everything else with that same gcc pointed at `$LFS` as its sysroot, so it all links
+   against the glibc it just built, not Alpine's musl. Then **fastfetch**, because what is LFS
+   without a screenshot.
+5. Strips everything and checks that fastfetch runs in the chroot and shows the LFS logo.
 
-No BLFS, no Xorg, no desktop. Just the base system and a terminal.
+### The diet (0.2.0)
+
+The full book took a day or two and ~18 GB. Most of that was a cross toolchain, GCC twice, and a
+load of packages that do nothing in a chroot. So now it skips:
+
+- **The cross toolchain and temporary tools** (ch. 5–7 bootstrap). Alpine's gcc does the job.
+- **The extras**: systemd (a chroot has no init), GCC/binutils inside `$LFS`, Perl, Python,
+  Texinfo, gettext, man pages, tests, docs and locales (glibc's built-in `C.UTF-8` is enough).
+
+What gets built: linux headers, glibc, zlib, ncurses, bash, coreutils, grep, sed, gawk, findutils,
+diffutils, tar, gzip, xz, file, less, util-linux (lsblk, findmnt, mount, dmesg, more, uuidgen),
+procps-ng, nano, iana-etc and fastfetch. 27 steps instead of 113. glibc is the slow one, so it's
+roughly 2–4 hours at `-j4` and ~4 GB peak (≈0.3 GB of sources, the result is ~0.3 GB).
+It's still "Linux From Scratch" in `/etc/os-release`. It's just from slightly less scratch.
+
+No compiler in the result, so you can't build stuff inside it. No kernel or bootloader either:
+it lives in a chroot, it'll never boot, and it's at peace with that.
+
+**Coming from 0.1.x?** A half-done old build is detected on Start, the LFS tree is wiped and the new
+build starts over. The downloaded sources are kept.
 
 ## Features
 
@@ -41,7 +60,7 @@ No BLFS, no Xorg, no desktop. Just the base system and a terminal.
 ## Requirements
 
 - An arm64 phone rooted with **KernelSU-Next** (grant LFS Droid in the KernelSU-Next manager; Magisk and APatch still work as fallbacks).
-- ~18 GB free, a charger, patience, and no particular reason.
+- ~4 GB free, a charger, patience, and no particular reason.
 
 ## Warnings, sincerely
 
@@ -49,7 +68,8 @@ No BLFS, no Xorg, no desktop. Just the base system and a terminal.
   namespace so nothing leaks into Android, but root is root.
 - Tests from the book are skipped (`make check` on a phone is a war crime). It's also all
   run as root instead of an `lfs` user. The LFS editors would be disappointed. Sorry, Bruce.
-- The root password in the result is `lfs`.
+- There's no login and no password: the terminal drops you straight into a root shell.
+- glibc has no `libgcc_s` to lean on, so anything using `pthread_cancel` aborts. Nothing in here does.
 
 ## Building the APK
 
