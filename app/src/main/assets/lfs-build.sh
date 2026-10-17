@@ -199,9 +199,7 @@ s_config() {
   cp -a /usr/share/zoneinfo/. $LFS/usr/share/zoneinfo/ 2>/dev/null
   ln -sfv /usr/share/zoneinfo/${TZ:-UTC} $LFS/etc/localtime
   echo lfs > $LFS/etc/hostname
-  printf 'NAME="Linux From Scratch"\nVERSION="%s (LFS Droid, aarch64, musl)"\nID=lfs\nPRETTY_NAME="Linux From Scratch %s on a phone"\nVERSION_CODENAME="pointless"\n' "$BOOK" "$BOOK" > $LFS/etc/os-release
-  echo "$BOOK" > $LFS/etc/lfs-release
-  printf 'DISTRIB_ID="Linux From Scratch"\nDISTRIB_RELEASE="%s"\nDISTRIB_CODENAME="pointless"\nDISTRIB_DESCRIPTION="Linux From Scratch on a phone"\n' "$BOOK" > $LFS/etc/lsb-release
+  branding
   cat > $LFS/etc/profile <<'P'
 export LANG=C.UTF-8
 export PATH=/usr/bin:/usr/sbin
@@ -267,6 +265,23 @@ s_check() {
     fastfetch --pipe --logo none --structure Title:Separator:OS:Kernel:Shell:Memory || exit 1'
 }
 
+# os-release + fastfetch look; rerun on every shell so old trees pick up changes
+branding() {
+  printf 'NAME="Linux From Scratch"\nVERSION="%s"\nVERSION_ID="%s"\nID=lfs\nPRETTY_NAME="Linux From Scratch %s"\n' "$BOOK" "$BOOK" "$BOOK" > $LFS/etc/os-release
+  echo "$BOOK" > $LFS/etc/lfs-release
+  printf 'DISTRIB_ID="Linux From Scratch"\nDISTRIB_RELEASE="%s"\nDISTRIB_DESCRIPTION="Linux From Scratch %s"\n' "$BOOK" "$BOOK" > $LFS/etc/lsb-release
+  mkdir -p $LFS/etc/xdg/fastfetch
+  cat > $LFS/etc/xdg/fastfetch/config.jsonc <<'F'
+{
+  "modules": [
+    "title", "separator", "os", "host", "kernel", "uptime", "packages", "shell", "display",
+    { "type": "terminal", "format": "LFS Droid" },
+    "cpu", "gpu", "memory", "swap", "disk", "localip", "battery", "locale", "break", "colors"
+  ]
+}
+F
+}
+
 # ---------------------------------------------------------------- running
 enter_lfs() {  # mount the virtual filesystems, once per namespace
   for d in dev proc sys run dev/pts; do mkdir -p $LFS/$d; done
@@ -309,7 +324,7 @@ migrate_old() {
 }
 
 [ "$1" = plan ] && { echo "$PLAN" | grep -v '^$'; exit 0; }
-[ "$1" = shell ] && { enter_lfs; exec chroot $LFS /usr/bin/env -i HOME=/root TERM=${TERM:-xterm-256color} PATH=/usr/bin:/usr/sbin /bin/bash --login; }
+[ "$1" = shell ] && { branding; enter_lfs; exec chroot $LFS /usr/bin/env -i HOME=/root TERM=${TERM:-xterm-256color} PATH=/usr/bin:/usr/sbin /bin/bash --login; }
 
 mkdir -p "$SRC"; migrate_old
 mkdir -p "$LOGDIR"; [ -s "$STATE" ] || echo "#format $FORMAT" > "$STATE"

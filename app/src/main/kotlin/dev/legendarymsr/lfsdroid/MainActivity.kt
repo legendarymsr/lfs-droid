@@ -117,7 +117,11 @@ private fun BuildScreen(builder: Builder, openShell: (String, String) -> Unit) {
                 (ctx as? MainActivity)?.askBatteryExemption(); BuildService.start(ctx)
             }
             Button("LFS shell", Tokyo.green, enabled = p.phase == BuildProgress.Phase.Done || builder.chroot.lfsFinished()) {
-                openShell("LFS", builder.chroot.lfsShellScript())
+                // Refresh the scripts first so finished trees get the current branding.
+                kotlin.concurrent.thread {
+                    runCatching { builder.installScripts() }
+                    (ctx as? android.app.Activity)?.runOnUiThread { openShell("LFS", builder.chroot.lfsShellScript()) }
+                }
             }
             Button("Build host", Tokyo.purple, enabled = builder.chroot.hostReady()) { openShell("Alpine build host", builder.chroot.hostShellScript()) }
         }

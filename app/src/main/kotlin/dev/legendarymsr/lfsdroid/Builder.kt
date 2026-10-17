@@ -120,7 +120,7 @@ class Builder(private val context: Context) {
         return false
     }
 
-    private fun installScripts() {
+    fun installScripts() {
         val tmp = File(context.cacheDir, "scripts").apply { mkdirs() }
         for (n in listOf("lfs-build.sh", "host-setup.sh")) context.assets.open(n).use { i -> File(tmp, n).outputStream().use { i.copyTo(it) } }
         val dst = shellQuote(File(chroot.host, "root").path)
