@@ -24,7 +24,7 @@ data class BuildProgress(
             else -> ((step - 1).coerceAtLeast(0) + 0.5f * (if (phase == Phase.Building) 1 else 0)) / total
         }.coerceIn(0f, 1f)
 
-    /** "Chapter 5 · glibc · 5 of 27", or the downloading state. */
+    /** "Chapter 5 · musl · 5 of 27", or the downloading state. */
     val headline: String
         get() = when (phase) {
             Phase.Idle -> "Not started"
@@ -121,9 +121,9 @@ fun resumeIndex(plan: List<Pair<String, String>>, done: Set<String>): Int =
     plan.indexOfFirst { (ch, n) -> "$ch:$n" !in done }.let { if (it < 0) plan.size else it }
 
 object Storage {
-    /** Sources (~0.3 GB), the Linux tree for headers, the glibc build tree and a ~0.3 GB stripped result. */
-    const val NEEDED_BYTES = 4L * 1024 * 1024 * 1024
-    const val NEEDED_RESUME_BYTES = 3L * 1024 * 1024 * 1024
+    /** Sources (~0.3 GB), the Linux tree for headers, musl and a ~0.2 GB stripped result. */
+    const val NEEDED_BYTES = 3L * 1024 * 1024 * 1024
+    const val NEEDED_RESUME_BYTES = 2L * 1024 * 1024 * 1024
 
     fun check(freeBytes: Long, resuming: Boolean): String? {
         val need = if (resuming) NEEDED_RESUME_BYTES else NEEDED_BYTES

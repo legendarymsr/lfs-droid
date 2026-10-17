@@ -65,12 +65,14 @@ class ProgressTest {
         val fns = script.substringAfter("PLAN=\"").substringBefore("\"").lines().mapNotNull { it.split(':').getOrNull(3) }
         for (f in fns) assertTrue("missing $f()", Regex("(?m)^$f\\(\\)").containsMatchIn(script))
         // No BLFS / GUI.
-        // No cross toolchain, no extras.
-        for (bad in listOf("xorg", "mesa", "wayland", "gtk", "grub", "pass1", "pass2", "systemd", "perl", "python", "texinfo", "gettext", "man-pages")) assertFalse(bad, plan.any { it.second.contains(bad) })
+        assertTrue(plan.contains("5" to "musl"))
+        // No cross toolchain, no extras, no glibc.
+        for (bad in listOf("xorg", "mesa", "wayland", "gtk", "grub", "pass1", "pass2", "systemd", "perl", "python", "texinfo", "gettext", "man-pages", "glibc"))
+        assertFalse(bad, plan.any { it.second.contains(bad) })
     }
 
     @Test fun resumesAtFirstUnfinished() {
-        val done = parseStateFile("#format 2\n4:layout\n4:sources\n5:toolwrap\ngarbage line\n")
+        val done = parseStateFile("#format 3\n4:layout\n4:sources\n5:toolwrap\ngarbage line\n")
         assertEquals(3, done.size)
         assertEquals(3, resumeIndex(plan, done))
         assertEquals(0, resumeIndex(plan, emptySet()))
@@ -78,9 +80,9 @@ class ProgressTest {
     }
 
     @Test fun storage() {
-        assertNull(Storage.check(5L shl 30, resuming = false))
-        assertNotNull(Storage.check(3L shl 30, resuming = false))
-        assertNull(Storage.check(3L shl 30, resuming = true))
+        assertNull(Storage.check(4L shl 30, resuming = false))
+        assertNotNull(Storage.check(2L shl 30, resuming = false))
+        assertNull(Storage.check(2L shl 30, resuming = true))
         assertNotNull(Storage.check(1L shl 30, resuming = true))
     }
 

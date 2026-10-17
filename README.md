@@ -4,7 +4,7 @@
 
 LFS Droid is an Android app that compiles a [Linux From Scratch](https://www.linuxfromscratch.org/lfs/)
 13.1 system for aarch64, inside a KernelSU-Next root chroot, on the phone in your pocket.
-It takes a few hours, turns the phone into a hand warmer, eats about 4 GB of storage, and at the
+It takes an hour or two, turns the phone into a hand warmer, eats about 3 GB of storage, and at the
 end you get… a shell. And fastfetch. So you can screenshot it. That's the whole point.
 
 It is completely pointless. It is also extremely fun.
@@ -13,31 +13,33 @@ It is completely pointless. It is also extremely fun.
 
 1. Downloads a tiny **Alpine aarch64 minirootfs** to act as the "host system" (Android has no compiler).
 2. Installs gcc, make, bison, python, cmake and friends into it with `apk`.
-3. Builds the Linux API headers and **glibc** into `$LFS` with Alpine's gcc.
+3. Builds the Linux API headers and **musl** into `$LFS` with Alpine's gcc.
 4. Builds everything else with that same gcc pointed at `$LFS` as its sysroot, so it all links
-   against the glibc it just built, not Alpine's musl. Then **fastfetch**, because what is LFS
+   against the musl it just built, not Alpine's copy. Then **fastfetch**, because what is LFS
    without a screenshot.
 5. Strips everything and checks that fastfetch runs in the chroot and shows the LFS logo.
 
-### The diet (0.2.0)
+### The diet (0.2.0) and the musl (0.3.0)
 
 The full book took a day or two and ~18 GB. Most of that was a cross toolchain, GCC twice, and a
 load of packages that do nothing in a chroot. So now it skips:
 
 - **The cross toolchain and temporary tools** (ch. 5–7 bootstrap). Alpine's gcc does the job.
 - **The extras**: systemd (a chroot has no init), GCC/binutils inside `$LFS`, Perl, Python,
-  Texinfo, gettext, man pages, tests, docs and locales (glibc's built-in `C.UTF-8` is enough).
+  Texinfo, gettext, man pages, tests, docs and locales (musl's `C.UTF-8` is built in).
+- **glibc**, since 0.3.0. In the spirit of the musl-LFS forks it uses [musl](https://musl.libc.org/)
+  1.2.6 instead, which compiles in minutes where glibc took an hour or more.
 
-What gets built: linux headers, glibc, zlib, ncurses, bash, coreutils, grep, sed, gawk, findutils,
+What gets built: linux headers, musl, zlib, ncurses, bash, coreutils, grep, sed, gawk, findutils,
 diffutils, tar, gzip, xz, file, less, util-linux (lsblk, findmnt, mount, dmesg, more, uuidgen),
-procps-ng, nano, iana-etc and fastfetch. 27 steps instead of 113. glibc is the slow one, so it's
-roughly 2–4 hours at `-j4` and ~4 GB peak (≈0.3 GB of sources, the result is ~0.3 GB).
-It's still "Linux From Scratch" in `/etc/os-release`. It's just from slightly less scratch.
+procps-ng, nano, iana-etc and fastfetch. 27 steps instead of 113. Roughly 1–2 hours at `-j4` and
+~3 GB peak (most of it is the unpacked Linux tree for the headers; the result is ~0.2 GB).
+It's still "Linux From Scratch" in `/etc/os-release`, just with a musl in it, from slightly less scratch.
 
 No compiler in the result, so you can't build stuff inside it. No kernel or bootloader either:
 it lives in a chroot, it'll never boot, and it's at peace with that.
 
-**Coming from 0.1.x?** A half-done old build is detected on Start, the LFS tree is wiped and the new
+**Coming from 0.1.x or 0.2.x?** An old build is detected on Start, the LFS tree is wiped and the new
 build starts over. The downloaded sources are kept.
 
 ## Features
@@ -60,7 +62,7 @@ build starts over. The downloaded sources are kept.
 ## Requirements
 
 - An arm64 phone rooted with **KernelSU-Next** (grant LFS Droid in the KernelSU-Next manager; Magisk and APatch still work as fallbacks).
-- ~4 GB free, a charger, patience, and no particular reason.
+- ~3 GB free, a charger, patience, and no particular reason.
 
 ## Warnings, sincerely
 
@@ -69,7 +71,6 @@ build starts over. The downloaded sources are kept.
 - Tests from the book are skipped (`make check` on a phone is a war crime). It's also all
   run as root instead of an `lfs` user. The LFS editors would be disappointed. Sorry, Bruce.
 - There's no login and no password: the terminal drops you straight into a root shell.
-- glibc has no `libgcc_s` to lean on, so anything using `pthread_cancel` aborts. Nothing in here does.
 
 ## Building the APK
 

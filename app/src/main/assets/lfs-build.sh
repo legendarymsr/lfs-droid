@@ -7,26 +7,31 @@
 #   @@LFS ok <name> | @@LFS fail <name> <code> | @@LFS done
 #
 # What's different from the book (on purpose, this is a phone):
+#  - musl instead of glibc, in the spirit of the musl-LFS forks. It builds in a
+#    couple of minutes where glibc took an hour or more.
 #  - No cross toolchain, no temporary tools (chapters 5-7 bootstrap). Alpine's
-#    own gcc builds glibc into $LFS, then every other package is compiled with
-#    that same gcc pointed at $LFS as its sysroot (see lfs_cc below), so the
-#    result links against our glibc, never Alpine's musl.
+#    own gcc builds musl into $LFS, then every other package is compiled with
+#    that same gcc pointed at $LFS as its sysroot (see s_toolwrap), so it all
+#    links against the musl in $LFS, never Alpine's copy.
 #  - Only what a root shell + fastfetch needs. No systemd (a chroot has no init),
-#    no Perl/Python/Texinfo/gettext/man pages, no tests, no locales beyond the
-#    C.UTF-8 glibc has built in, and no compiler inside $LFS.
+#    no Perl/Python/Texinfo/gettext/man pages, no tests, no locales (musl's
+#    C.UTF-8 is built in), and no compiler inside $LFS.
 set -o pipefail
 BOOK=13.1
 BOOK_URL=https://www.linuxfromscratch.org/lfs/downloads/$BOOK-systemd
 FASTFETCH_VER=2.69.0
+MUSL_VER=1.2.6
 NANO_VER=8.6
-FORMAT=2
+FORMAT=3
 
 LFS=${LFS:-/mnt/lfs}
 SRC=$LFS/sources
 STATE=$SRC/.lfsdroid-state
 LOGDIR=$SRC/.logs
-TOOLS=$SRC/.toolbin                 # wrapper "cross" names that are really Alpine's gcc
-export LFS LC_ALL=POSIX LFS_TGT=aarch64-lfs-linux-gnu
+TOOLS=$SRC/.toolbin                 # lfs-cc: Alpine's gcc aimed at $LFS
+export LFS LC_ALL=POSIX
+export CC=$TOOLS/lfs-cc CPP="$TOOLS/lfs-cc -E"
+export PKG_CONFIG_LIBDIR=$LFS/usr/lib/pkgconfig:$LFS/usr/share/pkgconfig PKG_CONFIG_SYSROOT_DIR=$LFS
 export MAKEFLAGS="-j${JOBS:-$(nproc)}"
 export PATH=$TOOLS:/usr/bin:/usr/sbin:/bin:/sbin
 export FORCE_UNSAFE_CONFIGURE=1     # root the whole way; the book uses an lfs user
@@ -44,7 +49,7 @@ PLAN="
 4:sources:-:s_sources
 5:toolwrap:-:s_toolwrap
 5:linux-headers:linux:s_headers
-5:glibc:glibc:s_glibc
+5:musl:musl:s_musl
 6:zlib:zlib:s_zlib
 6:ncurses:ncurses:s_ncurses
 6:bash:bash:s_bash
@@ -69,12 +74,12 @@ PLAN="
 9:check:-:s_check
 "
 # Sources we actually use out of the book's wget-list.
-PKGS="linux glibc zlib ncurses bash coreutils grep sed gawk findutils diffutils tar gzip xz file less util-linux procps-ng iana-etc"
+PKGS="linux zlib ncurses bash coreutils grep sed gawk findutils diffutils tar gzip xz file less util-linux procps-ng iana-etc"
 
 # ---------------------------------------------------------------- helpers
-# Configure as a "cross" build so autoconf doesn't try to run glibc binaries on
-# the musl host; the compiler is still Alpine's native aarch64 gcc.
-std_cfg() { ./configure --prefix=/usr --host=$LFS_TGT --build="$(gcc -dumpmachine)" "$@"; }
+# Host and target are both aarch64 musl, so plain native configures work:
+# test programs link against $LFS's musl and run fine on the Alpine host.
+std_cfg() { ./configure --prefix=/usr "$@"; }
 s_std() { std_cfg && make && make DESTDIR=$LFS install; }
 
 # ---------------------------------------------------------------- chapter 4
@@ -87,7 +92,8 @@ s_sources() {
   cd $SRC
   wget -nv -O wget-list $BOOK_URL/wget-list && wget -nv -O md5sums $BOOK_URL/md5sums || return 1
   local re; re=$(echo $PKGS | sed 's/ /|/g')
-  grep -E "/($re)-[0-9][^/]*\.tar\.|/glibc-fhs-1\.patch" wget-list > wget-list.droid
+  grep -E "/($re)-[0-9][^/]*\.tar\." wget-list > wget-list.droid
+  echo "https://musl.libc.org/releases/musl-$MUSL_VER.tar.gz" >> wget-list.droid
   echo "https://www.nano-editor.org/dist/v${NANO_VER%%.*}/nano-$NANO_VER.tar.xz" >> wget-list.droid
   echo "https://github.com/fastfetch-cli/fastfetch/archive/refs/tags/$FASTFETCH_VER.tar.gz" >> wget-list.droid
   local n=0 t f; t=$(wc -l < wget-list.droid)
@@ -103,71 +109,64 @@ s_sources() {
 }
 
 # ---------------------------------------------------------------- chapter 5
-# The whole "toolchain": Alpine's gcc, told to use $LFS for headers, crt files
-# and libc, glibc's dynamic loader, and the static libgcc (Alpine's libgcc_s is
-# linked to musl). Installed under the triplet names autoconf looks for.
+# The whole "toolchain": Alpine's gcc, told to take headers, crt files and libc
+# from $LFS and to use the static libgcc (Alpine's libgcc_s isn't in $LFS).
+# --sysroot only moves the headers: Alpine's gcc finds crt files and libc
+# relative to itself (= Alpine's /usr/lib), hence -B/-L. Its default loader,
+# /lib/ld-musl-aarch64.so.1, is the same path in $LFS.
 s_toolwrap() {
   mkdir -p $TOOLS
-  cat > $TOOLS/$LFS_TGT-gcc <<W
+  cat > $TOOLS/lfs-cc <<W
 #!/bin/sh
 case " \$* " in *" -E "*|*" -c "*|*" -S "*|*" -M "*) exec gcc --sysroot=$LFS "\$@";; esac
-exec gcc --sysroot=$LFS -static-libgcc -Wl,--dynamic-linker=/usr/lib/ld-linux-aarch64.so.1 \
-  -Wl,-rpath-link,$LFS/usr/lib "\$@"
+exec gcc --sysroot=$LFS -B$LFS/usr/lib -L$LFS/usr/lib -static-libgcc -Wl,-rpath-link,$LFS/usr/lib "\$@"
 W
-  chmod 755 $TOOLS/$LFS_TGT-gcc; ln -sf $LFS_TGT-gcc $TOOLS/$LFS_TGT-cc
-  printf '#!/bin/sh\nexec cpp --sysroot=%s "$@"\n' "$LFS" > $TOOLS/$LFS_TGT-cpp; chmod 755 $TOOLS/$LFS_TGT-cpp
-  for t in ar as ld nm objcopy objdump ranlib readelf strip; do ln -sf "$(command -v $t)" $TOOLS/$LFS_TGT-$t; done
-  # Alpine's gcc spec pulls in -lssp_nonshared (a musl thing); glibc has the real
-  # stack protector, so an empty one keeps the linker happy.
-  ar rc $LFS/usr/lib/libssp_nonshared.a
+  chmod 755 $TOOLS/lfs-cc
+  # Alpine's gcc spec pulls in -lssp_nonshared; musl has the real stack
+  # protector, so an empty one keeps the linker happy.
+  mkdir -p $LFS/usr/lib; ar rc $LFS/usr/lib/libssp_nonshared.a
 }
 s_headers() {
   make mrproper && make ARCH=arm64 headers &&
   find usr/include -type f ! -name '*.h' -delete && cp -r usr/include $LFS/usr
 }
-s_glibc() {
-  patch -Np1 -i $SRC/glibc-fhs-1.patch
-  for p in $SRC/glibc-$(ver glibc)-upstream_fixes-*.patch; do [ -f "$p" ] && patch -Np1 -i "$p"; done
-  mkdir -v build && cd build
-  echo "rootsbindir=/usr/sbin" > configparms
-  # glibc is built with -nostdlib/-nostdinc, so plain Alpine gcc is all it needs.
-  ../configure --prefix=/usr --host=$LFS_TGT --build="$(../scripts/config.guess)" CC=gcc CXX=false \
-    --disable-nscd --disable-werror --enable-kernel=5.4 --enable-stack-protector=strong \
-    --with-headers=$LFS/usr/include libc_cv_slibdir=/usr/lib &&
+s_musl() {
+  # musl builds with -nostdinc/-nostdlib, so plain Alpine gcc is all it needs.
+  ./configure --prefix=/usr --syslibdir=/usr/lib --disable-static CC=gcc &&
   make && make DESTDIR=$LFS install || return 1
-  sed '/RTLDLIST=/s@/usr@@g' -i $LFS/usr/bin/ldd
-  # Sanity check, like the book's: does the wrapper link against our glibc?
-  echo 'int main(){return 0;}' | $LFS_TGT-gcc -x c - -o $LFS/tmp/sanity &&
-  readelf -l $LFS/tmp/sanity | grep -q '/usr/lib/ld-linux-aarch64.so.1' &&
-  readelf -d $LFS/tmp/sanity | grep -q 'libc.so.6' || { echo "toolchain sanity check failed"; return 1; }
-  rm -f $LFS/tmp/sanity
+  ln -sfv ../lib/libc.so $LFS/usr/bin/ldd
+  # Sanity check, like the book's: does lfs-cc link against OUR musl?
+  local log=$LFS/tmp/sanity.log
+  mkdir -p $LFS/tmp
+  echo 'int main(){return 0;}' | lfs-cc -x c - -o $LFS/tmp/sanity -Wl,-t > $log 2>&1 || { cat $log; return 1; }
+  grep -q "^$LFS/.*crt1\.o" $log && grep -q "^$LFS/.*libc\.so" $log &&
+  ! grep -E '^/(usr/)?lib/(libc|crt1)' $log &&
+  readelf -l $LFS/tmp/sanity | grep -q 'ld-musl-aarch64.so.1' || { echo "toolchain sanity check failed"; cat $log; return 1; }
+  rm -f $LFS/tmp/sanity $log
 }
 
 # ---------------------------------------------------------------- chapter 6
-s_zlib() { CHOST=$LFS_TGT ./configure --prefix=/usr && make && make DESTDIR=$LFS install && rm -f $LFS/usr/lib/libz.a; }
+s_zlib() { ./configure --prefix=/usr && make && make DESTDIR=$LFS install && rm -f $LFS/usr/lib/libz.a; }
 s_ncurses() {
-  # tic has to run on the host to compile the terminfo database.
-  mkdir build && pushd build && ../configure AWK=gawk --without-cxx && make -C include && make -C progs tic && popd || return 1
   std_cfg --mandir=/usr/share/man --with-shared --without-normal --without-debug --without-cxx --without-cxx-binding \
     --without-ada --without-manpages --disable-stripping --enable-pc-files --with-pkg-config-libdir=/usr/lib/pkgconfig AWK=gawk &&
-  make && make DESTDIR=$LFS TIC_PATH=$PWD/build/progs/tic install || return 1
+  make && make DESTDIR=$LFS install || return 1
   for lib in ncurses form panel menu; do ln -sfv lib${lib}w.so $LFS/usr/lib/lib${lib}.so; ln -sfv ${lib}w.pc $LFS/usr/lib/pkgconfig/${lib}.pc; done
   ln -sfv libncursesw.so $LFS/usr/lib/libcurses.so
   sed -e 's/^#if.*XOPEN.*$/#if 1/' -i $LFS/usr/include/curses.h
 }
-s_bash() { std_cfg --without-bash-malloc --disable-nls bash_cv_strtold_broken=no && make && make DESTDIR=$LFS install && ln -sfv bash $LFS/usr/bin/sh; }
+s_bash() { std_cfg --without-bash-malloc --disable-nls && make && make DESTDIR=$LFS install && ln -sfv bash $LFS/usr/bin/sh; }
 s_coreutils() {
-  std_cfg --disable-nls --enable-install-program=hostname --enable-no-install-program=kill,uptime gl_cv_macro_MB_CUR_MAX_good=y &&
+  std_cfg --disable-nls --enable-install-program=hostname --enable-no-install-program=kill,uptime &&
   make && make DESTDIR=$LFS install && mv -v $LFS/usr/bin/chroot $LFS/usr/sbin
 }
 s_gawk() { sed -i 's/extras//' Makefile.in; std_cfg --disable-nls && make && make DESTDIR=$LFS install; }
 s_findutils() { std_cfg --disable-nls --localstatedir=/var/lib/locate && make && make DESTDIR=$LFS install; }
-s_diffutils() { std_cfg --disable-nls gl_cv_func_strcasecmp_works=y && make && make DESTDIR=$LFS install; }
+s_diffutils() { std_cfg --disable-nls && make && make DESTDIR=$LFS install; }
 s_xz() { std_cfg --disable-static --disable-nls --disable-doc && make && make DESTDIR=$LFS install && rm -fv $LFS/usr/lib/liblzma.la; }
 s_file() {
-  # Same trick as the book: a host copy of file to compile the magic database.
-  mkdir build && pushd build && ../configure --disable-bzlib --disable-libseccomp --disable-xzlib --disable-zlib && make && popd || return 1
-  std_cfg && make FILE_COMPILE=$PWD/build/src/file && make DESTDIR=$LFS install && rm -fv $LFS/usr/lib/libmagic.la
+  # Native build, so the freshly built file compiles its own magic database.
+  std_cfg --disable-libseccomp && make && make DESTDIR=$LFS install && rm -fv $LFS/usr/lib/libmagic.la
 }
 s_utillinux() {
   # Just the everyday tools, no daemons, no logins, no python.
@@ -179,8 +178,8 @@ s_utillinux() {
   make && make DESTDIR=$LFS install && find $LFS/usr/lib -name 'lib*.la' -delete
 }
 s_procps() {
-  std_cfg --disable-static --disable-kill --disable-nls --without-systemd --enable-watch8bit \
-    ac_cv_func_malloc_0_nonnull=yes ac_cv_func_realloc_0_nonnull=yes &&
+  # musl has no real utmp, so w is useless; drop it like Alpine does.
+  std_cfg --disable-static --disable-kill --disable-nls --without-systemd --enable-watch8bit --disable-w &&
   make && make DESTDIR=$LFS install && rm -fv $LFS/usr/lib/libproc2.la
 }
 s_nano() { std_cfg --sysconfdir=/etc --disable-nls --enable-utf8 && make && make DESTDIR=$LFS install; }
@@ -194,13 +193,13 @@ s_config() {
   printf '127.0.0.1 localhost lfs\n::1 localhost\n' > $LFS/etc/hosts
   printf 'root:x:0:0:root:/root:/bin/bash\nbin:x:1:1:bin:/dev/null:/usr/bin/false\nnobody:x:65534:65534:Unprivileged User:/dev/null:/usr/bin/false\n' > $LFS/etc/passwd
   printf 'root:x:0:\nbin:x:1:\nsys:x:2:\ntty:x:5:\ndaemon:x:6:\ndisk:x:8:\nutmp:x:13:\nwheel:x:97:\nusers:x:999:\nnogroup:x:65534:\n' > $LFS/etc/group
-  printf 'passwd: files\ngroup: files\nshadow: files\nhosts: files dns\nnetworks: files\nprotocols: files\nservices: files\n' > $LFS/etc/nsswitch.conf
-  printf '/usr/local/lib\n/opt/lib\n' > $LFS/etc/ld.so.conf
+  # musl's answer to ld.so.conf
+  printf '/usr/lib\n/usr/local/lib\n/opt/lib\n' > $LFS/etc/ld-musl-aarch64.path
   # Time zone data is just data; the host's tzdata is the same upstream release.
   cp -a /usr/share/zoneinfo/. $LFS/usr/share/zoneinfo/ 2>/dev/null
   ln -sfv /usr/share/zoneinfo/${TZ:-UTC} $LFS/etc/localtime
   echo lfs > $LFS/etc/hostname
-  printf 'NAME="Linux From Scratch"\nVERSION="%s (LFS Droid, aarch64)"\nID=lfs\nPRETTY_NAME="Linux From Scratch %s on a phone"\nVERSION_CODENAME="pointless"\n' "$BOOK" "$BOOK" > $LFS/etc/os-release
+  printf 'NAME="Linux From Scratch"\nVERSION="%s (LFS Droid, aarch64, musl)"\nID=lfs\nPRETTY_NAME="Linux From Scratch %s on a phone"\nVERSION_CODENAME="pointless"\n' "$BOOK" "$BOOK" > $LFS/etc/os-release
   echo "$BOOK" > $LFS/etc/lfs-release
   printf 'DISTRIB_ID="Linux From Scratch"\nDISTRIB_RELEASE="%s"\nDISTRIB_CODENAME="pointless"\nDISTRIB_DESCRIPTION="Linux From Scratch on a phone"\n' "$BOOK" > $LFS/etc/lsb-release
   cat > $LFS/etc/profile <<'P'
@@ -211,7 +210,6 @@ P
   printf 'source /etc/profile\n' > $LFS/root/.bashrc
   printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > $LFS/etc/resolv.conf
   printf '# no kernel, no bootloader: this LFS lives in a chroot on a phone\n' > $LFS/etc/fstab
-  chroot $LFS /usr/sbin/ldconfig
 }
 
 # ---------------------------------------------------------------- extras
@@ -220,7 +218,7 @@ s_fastfetch() {
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 set(CMAKE_SYSROOT $LFS)
-set(CMAKE_C_COMPILER $TOOLS/$LFS_TGT-gcc)
+set(CMAKE_C_COMPILER $TOOLS/lfs-cc)
 set(CMAKE_FIND_ROOT_PATH $LFS)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
@@ -228,9 +226,10 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 T
   # Fastfetch's optional GUI/GPU bits have nothing to find in here; zlib is there.
+  # IS_MUSL skips the glibc-only bits (execinfo backtraces and friends).
   PKG_CONFIG_LIBDIR=$LFS/usr/lib/pkgconfig PKG_CONFIG_SYSROOT_DIR=$LFS \
   cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/tc.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
-    -DBUILD_TESTS=OFF -DBUILD_FLASHFETCH=OFF -DENABLE_SYSTEM_YYJSON=OFF -DIS_MUSL=OFF -DENABLE_EMBEDDED_PCIIDS=OFF \
+    -DBUILD_TESTS=OFF -DBUILD_FLASHFETCH=OFF -DENABLE_SYSTEM_YYJSON=OFF -DIS_MUSL=ON -DENABLE_EMBEDDED_PCIIDS=OFF \
     -DCMAKE_JOB_POOLS=j=${JOBS:-$(nproc)} -DCMAKE_JOB_POOL_COMPILE=j &&
   cmake --build build && DESTDIR=$LFS cmake --install build
 }
@@ -243,7 +242,7 @@ s_strip() {
 s_check() {
   enter_lfs
   chroot $LFS /usr/bin/env -i HOME=/root PATH=/usr/bin:/usr/sbin /bin/bash -c \
-    'ldd /usr/bin/bash | grep -q libc.so.6 && ls / >/dev/null && fastfetch --pipe -l lfs --structure Title:Separator:OS:Kernel:Shell:Memory'
+    'ldd /usr/bin/bash | grep -q ld-musl && ls / >/dev/null && fastfetch --pipe -l lfs --structure Title:Separator:OS:Kernel:Shell:Memory'
 }
 
 # ---------------------------------------------------------------- running
@@ -273,14 +272,14 @@ build_one() {
   return $rc
 }
 
-# Builds from 0.1.x (full book, cross toolchain) left a different state file.
+# Builds from 0.1.x (full book) and 0.2.x (glibc) left a different state file.
 # Mixing the two would be a mess, so start the LFS tree over and keep the
 # downloaded tarballs: same book, same files.
 migrate_old() {
   [ -s "$STATE" ] || return 0
   head -n1 "$STATE" | grep -qx "#format $FORMAT" && return 0
   echo "@@LFS migrate old-build"
-  echo "== Found a build from LFS Droid 0.1.x. The 0.2 build is different, so the LFS tree"
+  echo "== Found a build from an older LFS Droid. The 0.3 (musl) build is different, so the LFS tree"
   echo "== is wiped and started over. Downloaded sources in $SRC are kept."
   for m in dev/shm dev/pts dev proc sys run; do umount -l $LFS/$m 2>/dev/null; done
   find $LFS -mindepth 1 -maxdepth 1 ! -name sources -exec rm -rf {} +
