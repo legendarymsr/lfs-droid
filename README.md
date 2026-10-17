@@ -17,7 +17,7 @@ It is completely pointless. It is also extremely fun.
 4. Builds everything else with that same gcc pointed at `$LFS` as its sysroot, so it all links
    against the musl it just built, not Alpine's copy. Then **fastfetch**, because what is LFS
    without a screenshot.
-5. Strips everything and checks that fastfetch runs in the chroot and shows the LFS logo.
+5. Strips the ELF binaries and checks that bash is linked against musl and fastfetch runs in the chroot.
 
 ### The diet (0.2.0) and the musl (0.3.0)
 
@@ -56,7 +56,9 @@ build starts over. The downloaded sources are kept.
 - Crash reports and Android's "last exit reason" are shown in the app, with a copy button.
 - Free-space check before starting and resuming.
 - Built-in **terminal** (a small PTY-backed VT100 emulator with an extra-keys row) that opens a root
-  shell in the finished LFS, or in the Alpine build host while the build is still going.
+  shell in the finished LFS, or in the Alpine build host while the build is still going. It draws
+  on an exact cell grid, resizes the shell when the keyboard opens, on rotation and on the fold, and
+  pinch-to-zoom changes the font size (7–24 sp, remembered).
 - Tokyo Night everything.
 
 ## Requirements

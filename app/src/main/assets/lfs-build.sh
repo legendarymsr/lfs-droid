@@ -233,16 +233,38 @@ T
     -DCMAKE_JOB_POOLS=j=${JOBS:-$(nproc)} -DCMAKE_JOB_POOL_COMPILE=j &&
   cmake --build build && DESTDIR=$LFS cmake --install build
 }
+is_elf() { [ "$(head -c4 "$1" 2>/dev/null | tail -c3)" = ELF ]; }
+strip_elves() {  # strip_elves <strip flags> -- <dir>...: ELF files only, never fatal
+  local flags=$1 f; shift
+  local dirs=(); for d in "$@"; do [ -d "$d" ] && dirs+=("$d"); done
+  [ ${#dirs[@]} -gt 0 ] || return 0
+  find "${dirs[@]}" -type f -print 2>/dev/null | while IFS= read -r f; do
+    if [ "$flags" = lib ]; then case $f in *.so|*.so.*) ;; *) continue ;; esac; fi
+    is_elf "$f" || continue
+    if [ "$flags" = lib ]; then strip --strip-unneeded "$f"; else strip --strip-all "$f"; fi 2>/dev/null || echo "  (left unstripped: ${f#$LFS})"
+  done || true
+  return 0
+}
 s_strip() {
-  # From the host: there are no binutils inside this LFS.
-  find $LFS/usr/lib -type f -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null
-  find $LFS/usr/bin $LFS/usr/sbin $LFS/usr/libexec -type f -exec strip --strip-all {} + 2>/dev/null
-  rm -rf $LFS/usr/share/{doc,info,man,locale}/* $LFS/usr/lib/libssp_nonshared.a; true
+  # From the host: there are no binutils inside this LFS. Scripts (ldd's
+  # friends, *-config, shell wrappers) aren't ELF and get skipped, and a strip
+  # that still balks only leaves that one file as it was. Safe to re-run.
+  strip_elves lib $LFS/usr/lib || true
+  strip_elves bin $LFS/usr/bin $LFS/usr/sbin $LFS/usr/libexec || true
+  rm -rf $LFS/usr/share/{doc,info,man,locale}/* $LFS/usr/lib/libssp_nonshared.a || true
+  echo "stripped: $(du -sh $LFS --exclude=sources 2>/dev/null | cut -f1) without sources"
 }
 s_check() {
+  # Host side first: bash must ask for musl's loader, and the loader must be there.
+  readelf -l $LFS/usr/bin/bash | grep -q 'ld-musl-aarch64.so.1' || { echo "bash isn't linked against musl"; return 1; }
+  [ -e $LFS/lib/ld-musl-aarch64.so.1 ] || { echo "missing /lib/ld-musl-aarch64.so.1"; return 1; }
   enter_lfs
-  chroot $LFS /usr/bin/env -i HOME=/root PATH=/usr/bin:/usr/sbin /bin/bash -c \
-    'ldd /usr/bin/bash | grep -q ld-musl && ls / >/dev/null && fastfetch --pipe -l lfs --structure Title:Separator:OS:Kernel:Shell:Memory'
+  # musl's ldd prints the loader as its PT_INTERP, "/lib/ld-musl-aarch64.so.1 (0x...)".
+  chroot $LFS /usr/bin/env -i HOME=/root PATH=/usr/bin:/usr/sbin /bin/bash -c '
+    out=$(ldd /usr/bin/bash 2>&1); echo "$out"
+    case $out in *ld-musl-aarch64.so.1*) ;; *) echo "ldd: no musl loader"; exit 1 ;; esac
+    ls / >/dev/null || exit 1
+    fastfetch --pipe --logo none --structure Title:Separator:OS:Kernel:Shell:Memory || exit 1'
 }
 
 # ---------------------------------------------------------------- running

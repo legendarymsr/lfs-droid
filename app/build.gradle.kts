@@ -11,8 +11,8 @@ android {
         applicationId = "dev.legendarymsr.lfsdroid"
         minSdk = 29
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.3.0"
+        versionCode = 6
+        versionName = "0.3.1"
         ndk { abiFilters += "arm64-v8a" }
     }
 

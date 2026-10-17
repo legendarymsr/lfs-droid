@@ -24,6 +24,11 @@ object Settings {
     fun setJobs(c: Context, n: Int) = prefs(c).edit().putInt("jobs", n.coerceIn(1, MAX_JOBS)).apply()
 
     const val MAX_JOBS = 8
+
+    /** Terminal font size in sp; pinch-to-zoom changes it. */
+    fun termFont(c: Context): Float = TermGrid.clampFont(prefs(c).getFloat("term_font", TermGrid.DEFAULT_FONT))
+
+    fun setTermFont(c: Context, sp: Float) = prefs(c).edit().putFloat("term_font", TermGrid.clampFont(sp)).apply()
 }
 
 /** Stack traces from crashes, kept in a file and shown on the next launch. */

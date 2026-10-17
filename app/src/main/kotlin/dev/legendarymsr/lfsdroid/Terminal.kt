@@ -19,7 +19,7 @@ class TerminalBuffer(
     class Line(cols: Int) {
         var chars = CharArray(cols) { ' ' }
         var colors = IntArray(cols) { -1 }
-        fun text() = String(chars).trimEnd()
+        fun text() = String(chars).replace(TermGrid.WIDE_TAIL.toString(), "").trimEnd()
         fun resize(c: Int) {
             chars = chars.copyOf(c).also { for (i in chars.size until c) it[i] = ' ' }
             colors = colors.copyOf(c).also { for (i in colors.size until c) it[i] = -1 }
@@ -34,6 +34,7 @@ class TerminalBuffer(
     private var savedRow = 0
     private var savedCol = 0
     private var wrapPending = false
+    private var highSurrogate: Char? = null
 
     private enum class S { Normal, Esc, Csi, Osc, OscEsc, Charset }
     private var state = S.Normal
@@ -107,11 +108,32 @@ class TerminalBuffer(
     }
 
     private fun printable(ch: Char) {
+        if (ch.isHighSurrogate()) { highSurrogate = ch; return }
+        val hi = highSurrogate; highSurrogate = null
+        if (ch.isLowSurrogate()) {
+            // Astral chars (emoji, mostly) are two cells wide, which is also what bash/wcwidth assume.
+            if (hi != null && !TermGrid.isZeroWidth(Character.toCodePoint(hi, ch))) place(hi, ch)
+            return
+        }
+        when {
+            TermGrid.isZeroWidth(ch.code) -> {}
+            TermGrid.isWide(ch.code) -> place(ch, TermGrid.WIDE_TAIL)
+            else -> place(ch, null)
+        }
+    }
+
+    /** Puts one character at the cursor: [second] is its other half for two-cell chars. */
+    private fun place(ch: Char, second: Char?) {
+        val w = if (second == null || cols < 2) 1 else 2
         if (wrapPending) { cursorCol = 0; lineFeed(); wrapPending = false }
+        if (w == 2 && cursorCol == cols - 1) {
+            screen[cursorRow].clear(cursorCol); cursorCol = 0; lineFeed()
+        }
         val l = screen[cursorRow]
-        l.chars[cursorCol] = ch
-        l.colors[cursorCol] = if (bold && color in 0..7) color + 8 else color
-        if (cursorCol == cols - 1) wrapPending = true else cursorCol++
+        val c = if (bold && color in 0..7) color + 8 else color
+        l.chars[cursorCol] = ch; l.colors[cursorCol] = c
+        if (w == 2) { l.chars[cursorCol + 1] = second!!; l.colors[cursorCol + 1] = c }
+        if (cursorCol + w >= cols) { cursorCol = cols - 1; wrapPending = true } else cursorCol += w
     }
 
     private fun csi(final: Char) {
